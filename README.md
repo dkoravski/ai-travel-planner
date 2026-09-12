@@ -1,2 +1,42 @@
-# ai-travel-planner
-Course final project AI Agents and Workflows for Developers
+# AI Travel Planner — мулти-агентна система (LangGraph + LangChain)
+
+Курсов проект: мулти-агентна система за планиране на пътувания, реализирана като stateful
+граф в **LangGraph**:
+
+- с два специализирани агента, четири инструмента дефинирани с `@tool`, изградени чрез **LangChain**;
+- с памет на разговора, две Human-in-the-Loop точки на прекъсване и вложен under-граф за (мок) резервация на полет/хотел.
+
+## Файлове
+
+- `AI_Travel_Planner_LangGraph.ipynb` — основен notebook
+
+## Архитектура
+
+```
+START → research_agent → planner_agent → human_gate ─┬(одобрено)→ finalize → packing_list → assess_booking_needs ─┬(нужен полет)→ booking_flight_gate ─→ apply_booking_decision → booking (subgraph) → END
+                              ▲                       │                                                          └(не е нужен)──────────────────────┘
+                              └────(иска се ревизия)──┘
+```
+
+- **research_agent** — проучва дестинацията чрез Wikipedia (built-in tool).
+- **planner_agent** — съставя/ревизира маршрут по дни, използвайки mock инструменти за
+  цени на полети/хотели и калкулатор за бюджет, плюс прогноза за времето (custom tools).
+- **human_gate** — първата точка на прекъсване (`interrupt_before`); графът спира тук и
+  чака одобрение или обратна връзка от човек, преди да финализира маршрута.
+- **finalize** — записва одобрения маршрут като `final_itinerary`.
+- **packing_list** — прост LLM node (без tools), съставя списък за багаж според маршрута.
+- **assess_booking_needs** — LLM преценява дали пътуването изобщо изисква самолетен билет
+  (напр. кратко вътрешно пътуване не изисква полет); може и да се наложи ръчно чрез
+  параметъра `force_needs_flight` на `execute_workflow`, за да се демонстрират
+  детерминистично и двата пътя в тестовете.
+- **booking_flight_gate** — втората точка на прекъсване; активира се само ако е преценено,
+  че е нужен полет, и пита човека за потвърждение на резервацията.
+- **booking** — вложен, компилиран `StateGraph` (собствена state схема `BookingState`,
+  споделяща полето `messages` с главния граф) с условна входна точка: `book_flight`
+  (резервира отделни мок кодове за полет на отиване и връщане; прескача се изцяло, ако не
+  е нужен полет) → `book_hotel` → `generate_confirmation`.
+- Паметта на целия разговор (между агентите, човека и booking стъпките) се пази чрез
+  `MemorySaver` checkpointer и полето `messages` в state-а (`TripState`) — това е
+  short-term памет, ограничена до конкретната нишка (`thread_id`, генериран автоматично
+  за всяко извикване на `execute_workflow`).
+
